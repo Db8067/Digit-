@@ -1,0 +1,29 @@
+.drawing-canvas {
+    border: 2px solid var(--bs-border-color);
+    border-radius: 8px;
+    cursor: crosshair;
+    touch-action: none;
+    background-color: black;
+}
+
+#loading {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.alert {
+    text-align: left;
+}
+
+.card {
+    background-color: var(--bs-dark);
+    border: 1px solid var(--bs-border-color);
+}
+
+.btn {
+    min-width: 100px;
+}
+
+.bi {
+    margin-right: 5px;
+}
