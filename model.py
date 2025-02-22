@@ -7,11 +7,14 @@ class DigitRecognitionModel:
     def __init__(self):
         """Initialize the digit recognition model"""
         self.model = MLPClassifier(
-            hidden_layer_sizes=(128, 64),
-            max_iter=10,
+            hidden_layer_sizes=(256, 128, 64),  # Increased network capacity
+            max_iter=100,  # Increased max iterations
             activation='relu',
             solver='adam',
-            random_state=1
+            random_state=1,
+            learning_rate_init=0.001,  # Added explicit learning rate
+            early_stopping=True,  # Added early stopping
+            validation_fraction=0.1
         )
         self.scaler = StandardScaler()
         self._is_trained = False

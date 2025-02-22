@@ -8,13 +8,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const loadingDiv = document.getElementById('loading');
     const predictedDigitSpan = document.getElementById('predictedDigit');
     const confidenceSpan = document.getElementById('confidence');
+    const canvasOverlay = document.querySelector('.canvas-overlay');
 
     let isDrawing = false;
     let lastX = 0;
     let lastY = 0;
 
     // Setup canvas
-    ctx.lineWidth = 15;
+    ctx.lineWidth = 20;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.strokeStyle = 'white';
@@ -26,15 +27,21 @@ document.addEventListener('DOMContentLoaded', function() {
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', stopDrawing);
     canvas.addEventListener('mouseout', stopDrawing);
-    
+
     // Touch events
-    canvas.addEventListener('touchstart', handleTouchStart);
-    canvas.addEventListener('touchmove', handleTouchMove);
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', stopDrawing);
 
     function startDrawing(e) {
         isDrawing = true;
         [lastX, lastY] = getCoordinates(e);
+
+        // Start new path for smoother lines
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(lastX, lastY);
+        ctx.stroke();
     }
 
     function draw(e) {
@@ -43,9 +50,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const [currentX, currentY] = getCoordinates(e);
 
+        // Draw curved line for smoother appearance
         ctx.beginPath();
         ctx.moveTo(lastX, lastY);
-        ctx.lineTo(currentX, currentY);
+        ctx.quadraticCurveTo(lastX, lastY, (lastX + currentX) / 2, (lastY + currentY) / 2);
         ctx.stroke();
 
         [lastX, lastY] = [currentX, currentY];
@@ -53,14 +61,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function stopDrawing() {
         isDrawing = false;
+        ctx.beginPath(); // Reset the path
     }
 
     function getCoordinates(e) {
         if (e.type.includes('touch')) {
             const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
             return [
-                e.touches[0].clientX - rect.left,
-                e.touches[0].clientY - rect.top
+                touch.clientX - rect.left,
+                touch.clientY - rect.top
             ];
         }
         return [e.offsetX, e.offsetY];
@@ -76,23 +86,28 @@ document.addEventListener('DOMContentLoaded', function() {
         draw(e);
     }
 
-    // Clear canvas
+    // Clear canvas with animation
     clearBtn.addEventListener('click', function() {
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         resultDiv.classList.add('d-none');
         errorDiv.classList.add('d-none');
+
+        // Add visual feedback
+        clearBtn.classList.add('btn-danger');
+        setTimeout(() => clearBtn.classList.remove('btn-danger'), 200);
     });
 
-    // Predict
+    // Predict with improved feedback
     predictBtn.addEventListener('click', async function() {
         resultDiv.classList.add('d-none');
         errorDiv.classList.add('d-none');
         loadingDiv.classList.remove('d-none');
+        canvasOverlay.classList.remove('d-none');
 
         try {
             const imageData = canvas.toDataURL('image/png');
-            
+
             const response = await fetch('/predict', {
                 method: 'POST',
                 headers: {
@@ -105,7 +120,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (data.success) {
                 predictedDigitSpan.textContent = data.digit;
-                confidenceSpan.textContent = data.confidence;
+
+                // Animate confidence counter
+                const targetConfidence = data.confidence;
+                const startConfidence = 0;
+                const duration = 1000;
+                const startTime = performance.now();
+
+                function updateConfidence(currentTime) {
+                    const elapsed = currentTime - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+
+                    const currentConfidence = Math.round(startConfidence + (targetConfidence - startConfidence) * progress);
+                    confidenceSpan.textContent = currentConfidence;
+
+                    if (progress < 1) {
+                        requestAnimationFrame(updateConfidence);
+                    }
+                }
+
+                requestAnimationFrame(updateConfidence);
                 resultDiv.classList.remove('d-none');
             } else {
                 errorDiv.classList.remove('d-none');
@@ -115,6 +149,7 @@ document.addEventListener('DOMContentLoaded', function() {
             errorDiv.classList.remove('d-none');
         } finally {
             loadingDiv.classList.add('d-none');
+            canvasOverlay.classList.add('d-none');
         }
     });
 });
