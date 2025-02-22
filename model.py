@@ -12,19 +12,41 @@ logging.basicConfig(level=logging.DEBUG)
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+        # First convolutional layer
+        self.conv1 = nn.Conv2d(1, 32, 3, 1, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+
+        # Second convolutional layer
+        self.conv2 = nn.Conv2d(32, 64, 3, 1, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+
+        # Third convolutional layer
+        self.conv3 = nn.Conv2d(64, 64, 3, 1, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+
         self.dropout1 = nn.Dropout(0.25)
         self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(9216, 128)
+        self.fc1 = nn.Linear(3136, 128)
         self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
+        # First block
         x = self.conv1(x)
+        x = self.bn1(x)
         x = F.relu(x)
+
+        # Second block
         x = self.conv2(x)
+        x = self.bn2(x)
         x = F.relu(x)
         x = F.max_pool2d(x, 2)
+
+        # Third block
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+
         x = self.dropout1(x)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
@@ -49,10 +71,11 @@ class DigitRecognitionModel:
             logging.error(f"Error initializing model: {str(e)}")
             raise
 
-    def train(self, epochs=1, batch_size=64):
+    def train(self, epochs=3, batch_size=64):
         """Train the model using MNIST dataset"""
         try:
             transform = transforms.Compose([
+                transforms.RandomAffine(degrees=10, translate=(0.1, 0.1), scale=(0.9, 1.1)),
                 transforms.ToTensor(),
                 transforms.Normalize((0.1307,), (0.3081,))
             ])
@@ -70,11 +93,13 @@ class DigitRecognitionModel:
                 train_dataset, batch_size=batch_size, shuffle=True)
 
             # Training settings
-            optimizer = torch.optim.Adam(self.model.parameters())
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=1)
 
             logging.info("Starting model training...")
             self.model.train()
             for epoch in range(epochs):
+                total_loss = 0
                 logging.info(f"Epoch {epoch+1}/{epochs}")
                 for batch_idx, (data, target) in enumerate(train_loader):
                     data, target = data.to(self.device), target.to(self.device)
@@ -83,10 +108,14 @@ class DigitRecognitionModel:
                     loss = F.nll_loss(output, target)
                     loss.backward()
                     optimizer.step()
+                    total_loss += loss.item()
 
                     if batch_idx % 100 == 0:
                         logging.info(f'Train Epoch: {epoch+1} [{batch_idx * len(data)}/{len(train_loader.dataset)} '
                               f'({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.6f}')
+
+                # Update learning rate based on loss
+                scheduler.step(total_loss)
 
             self._is_trained = True
             logging.info("Training completed successfully")

@@ -20,7 +20,7 @@ app.secret_key = os.environ.get("SESSION_SECRET", "default-secret-key")
 # Global model variable
 model = None
 
-def initialize_model():
+def initialize_model(train_model=True):
     """Initialize and train the model"""
     global model
     try:
@@ -28,23 +28,16 @@ def initialize_model():
         model = DigitRecognitionModel()
         logger.info("Model instance created successfully")
 
-        logger.info("Starting model training...")
-        model.train()
-        logger.info("Model training completed successfully")
+        if train_model:
+            logger.info("Starting model training...")
+            model.train()
+            logger.info("Model training completed successfully")
+        else:
+            logger.info("Skipping model training...")
         return True
     except Exception as e:
         logger.error(f"Failed to initialize model: {str(e)}", exc_info=True)
         return False
-
-@app.before_first_request
-def setup_model():
-    """Initialize model before first request"""
-    global model
-    if model is None:
-        success = initialize_model()
-        if not success:
-            logger.error("Model initialization failed!")
-            raise RuntimeError("Failed to initialize the model")
 
 @app.route('/')
 def index():
@@ -91,7 +84,12 @@ def predict():
 
 if __name__ == '__main__':
     try:
+        train_model_flag = os.environ.get('TRAIN_MODEL', 'true').lower() == 'true' #Check for environment variable
+
         logger.info("Starting Flask application...")
+        if not initialize_model(train_model=train_model_flag):
+            logger.error("Model initialization failed. Exiting.")
+            exit(1)
         app.run(host='0.0.0.0', port=5000, debug=True)
     except Exception as e:
         logger.error(f"Failed to start Flask application: {str(e)}", exc_info=True)
