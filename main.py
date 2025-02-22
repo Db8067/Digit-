@@ -5,6 +5,7 @@ from PIL import Image
 import io
 import base64
 import logging
+import threading
 from model import DigitRecognitionModel
 
 # Configure logging
@@ -19,9 +20,25 @@ app.secret_key = os.environ.get("SESSION_SECRET", "default-secret-key")
 
 # Global model variable
 model = None
+model_ready = threading.Event()
+
+def train_model_async():
+    """Train the model in a separate thread"""
+    global model
+    try:
+        logger.info("Starting model training in background...")
+        success = model.train(epochs=1, batch_size=8, timeout=300)
+        if success:
+            logger.info("Model training completed successfully")
+        else:
+            logger.warning("Model training incomplete but usable")
+        model_ready.set()
+    except Exception as e:
+        logger.error(f"Error during model training: {str(e)}")
+        model_ready.set()  # Set the event even on failure to unblock predictions
 
 def initialize_model(train_model=True):
-    """Initialize and train the model"""
+    """Initialize and optionally start training the model"""
     global model
     try:
         logger.info("Starting model initialization...")
@@ -29,15 +46,25 @@ def initialize_model(train_model=True):
         logger.info("Model instance created successfully")
 
         if train_model:
-            logger.info("Starting model training...")
-            model.train()
-            logger.info("Model training completed successfully")
+            # Start training in a separate thread
+            training_thread = threading.Thread(target=train_model_async)
+            training_thread.daemon = True  # Thread will be terminated when main program exits
+            training_thread.start()
         else:
-            logger.info("Skipping model training...")
+            model_ready.set()  # If not training, mark as ready immediately
+
         return True
     except Exception as e:
         logger.error(f"Failed to initialize model: {str(e)}", exc_info=True)
         return False
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'model_ready': model_ready.is_set()
+    })
 
 @app.route('/')
 def index():
@@ -46,6 +73,13 @@ def index():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        # Check if model is ready
+        if not model_ready.is_set():
+            return jsonify({
+                'success': False,
+                'error': 'Model is still training, please try again in a moment'
+            }), 503
+
         # Get the image data from the request
         image_data = request.json['image'].split(',')[1]
         image_bytes = base64.b64decode(image_data)
@@ -61,9 +95,6 @@ def predict():
         # Convert to numpy array and normalize
         image_array = np.array(image).astype('float32') / 255.0
         image_array = image_array.reshape(28, 28, 1)  # Add channel dimension
-
-        logger.debug(f"Preprocessed image shape: {image_array.shape}")
-        logger.debug(f"Preprocessed value range: [{image_array.min()}, {image_array.max()}]")
 
         # Make prediction
         predicted_digit, confidence = model.predict(image_array)
@@ -84,7 +115,7 @@ def predict():
 
 if __name__ == '__main__':
     try:
-        train_model_flag = os.environ.get('TRAIN_MODEL', 'true').lower() == 'true' #Check for environment variable
+        train_model_flag = os.environ.get('TRAIN_MODEL', 'true').lower() == 'true'
 
         logger.info("Starting Flask application...")
         if not initialize_model(train_model=train_model_flag):

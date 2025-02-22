@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let isDrawing = false;
     let lastX = 0;
     let lastY = 0;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 seconds
 
     // Setup canvas
     ctx.lineWidth = 20;
@@ -98,16 +101,9 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(() => clearBtn.classList.remove('btn-danger'), 200);
     });
 
-    // Predict with improved feedback
-    predictBtn.addEventListener('click', async function() {
-        resultDiv.classList.add('d-none');
-        errorDiv.classList.add('d-none');
-        loadingDiv.classList.remove('d-none');
-        canvasOverlay.classList.remove('d-none');
-
+    async function predictWithRetry() {
         try {
             const imageData = canvas.toDataURL('image/png');
-
             const response = await fetch('/predict', {
                 method: 'POST',
                 headers: {
@@ -117,6 +113,15 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             const data = await response.json();
+
+            if (response.status === 503 && retryCount < MAX_RETRIES) {
+                // Model is still training, retry after delay
+                retryCount++;
+                errorDiv.innerHTML = `<i class="bi bi-info-circle"></i> Model is still initializing... Retrying in ${RETRY_DELAY/1000} seconds (Attempt ${retryCount}/${MAX_RETRIES})`;
+                errorDiv.classList.remove('d-none');
+                setTimeout(predictWithRetry, RETRY_DELAY);
+                return;
+            }
 
             if (data.success) {
                 predictedDigitSpan.textContent = data.digit;
@@ -141,15 +146,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 requestAnimationFrame(updateConfidence);
                 resultDiv.classList.remove('d-none');
+                errorDiv.classList.add('d-none');
             } else {
+                errorDiv.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${data.error || 'An error occurred during prediction. Please try again.'}`;
                 errorDiv.classList.remove('d-none');
             }
         } catch (error) {
             console.error('Prediction error:', error);
+            errorDiv.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Network error. Please check your connection and try again.';
             errorDiv.classList.remove('d-none');
         } finally {
             loadingDiv.classList.add('d-none');
             canvasOverlay.classList.add('d-none');
+            retryCount = 0; // Reset retry counter
         }
+    }
+
+    // Predict with improved feedback
+    predictBtn.addEventListener('click', function() {
+        resultDiv.classList.add('d-none');
+        errorDiv.classList.add('d-none');
+        loadingDiv.classList.remove('d-none');
+        canvasOverlay.classList.remove('d-none');
+        retryCount = 0;
+        predictWithRetry();
     });
 });
